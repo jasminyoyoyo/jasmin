@@ -321,7 +321,54 @@ erDiagram
 | `sk_hidden`保存但不控制计算 | getter固定2 | **Confirmed / Medium** |
 | 项目无稳定ID、owner或审计 | JSON只有name/time/app metadata/state | **Confirmed gap；需求Unknown** |
 
-### 7.4 下一阶段前必须确认的问题
+### 7.4 数据管理类别与报价行为分析
+
+#### 7.4.1 三类数据
+
+| 类别 | 数据 | 当前行为与证据 | 结论 |
+|---|---|---|---|
+| 必须集中管理、变化较少 | Brick Type code/name/dimensions | 重复硬编码于 HTML options、`BRICK_TYPES`、`BRICK_NAMES`（L1035-L1041、L2150-L2163） | 当前未集中管理，**Confirmed** |
+| 必须集中管理、变化较少 | Bond Type code/label/allowed values | 分散于 radios、`ALL_BOND_VALUES`、`NAMES`及算法（L1063-L1076、L4752-L4760、L5158-L5166） | 当前未集中管理，**Confirmed** |
+| 必须集中管理、变化较少 | 工程默认值、密度、配比、GST规则 | 以 `userOrDefault` 参数或JS literal硬编码（L5552-L5664、L5752） | 由代码发布控制；变化频率/维护者 **Unknown** |
+| 必须集中管理、变化频率未知 | 默认价格、人工费率、最低收费、allowances | 一套 RenoPilot defaults 硬编码于页面与计算函数（L1215-L1217、L5667-L5713） | 无中央价格源、版本、生效日期或审批信息，**Confirmed** |
+| 用户频繁编辑 | `WL`,`WH`,`MJ`,`BT`,`bond`,`cu`,`ad`,`cc`,`cco`,`ccoff` | 浏览器用户修改，Draw后重算（L1022-L1123、L5257） | 可编辑行为 **Confirmed**；实际频率无统计，**Unknown** |
+| 用户频繁编辑 | 34个 `u_*` 工程、价格、费率、损耗、最低费覆盖 | 用户输入、`oninput`重算、Save保存（L1276-L1870、L2655-L2701） | **Confirmed** |
+| 用户频繁编辑 | `projectName` | 用户输入/应用建议，保存到JSON root（L2052-L2087、L2753-L2785） | **Confirmed** |
+| 正式、不能变化的结果 | accepted quote、批准时间/人、状态、锁定单价/总额 | 这些字段和对象不存在；Save仅保存输入（L2779-L2785） | 当前没有正式不可变结果，**Confirmed absence** |
+| 正式、不能变化的结果 | 当前estimate/打印报告 | 派生金额不保存；免责声明称其不是formal quote、contract或guarantee（L2009-L2010、L2484-L2550） | 当前结果可重算且非正式报价，**Confirmed** |
+
+当前代码可确认 reference/configuration 与项目编辑数据性质不同，但两者仍处于单文件代码和本地JSON模式中。代码没有已接受、已批准或锁定的正式报价。未来不可变结果的内容和锁定时点必须由业务确认。**Unknown**。
+
+#### 7.4.2 价格调整后，旧设计使用现价还是保留当时价格？
+
+| 检查点 | Application证据结论 | 依据 |
+|---|---|---|
+| 是否保存默认价格实际取值？ | **No**。`u_cost_*`空白时JSON保存空字符串；实际default和派生总额不保存 | `collectProjectState` L2704-L2709；L2668-L2674 |
+| 空价格旧项目加载后如何计算？ | Load恢复空字符串并重算；`userOrDefault`使用当前代码default | L2719-L2744、L5514-L5520、L5667-L5673，**Confirmed** |
+| 默认价格后来改变会怎样？ | 原空白价格会采用新代码default，派生总额可能变化 | 上述调用链，**Confirmed technical behaviour** |
+| 显式输入价格（包括0）会怎样？ | 输入随JSON保存/恢复，重算使用该项目覆盖值 | L1215-L1217、L2668-L2674、L2704-L2744，**Confirmed** |
+| 能否表达“2026年1月已接受报价不能变化”？ | **No**。无accepted/approved/locked、acceptedAt、price version或不可变结果；免责声明称estimate不是formal quote | L2009-L2010、L2549、L2779-L2785，**Confirmed absence** |
+| 业务上应使用现价还是原价？ | **Unknown**。代码证明当前重算行为，但不定义报价政策 | 需产品、财务/估算、法务确认 |
+
+**结论：** 当前技术行为是“空白价格跟随打开项目时的代码default；显式用户价格随项目保存”。这不等同于正式报价政策。已接受报价是否冻结，application中没有答案，不能推测。
+
+#### 7.4.3 价格来自供应商报价还是统一源表？谁能修改？
+
+| 检查点 | Application证据结论 | 依据 |
+|---|---|---|
+| 是否有Supplier/Vendor或supplier quote数据？ | **No**。无supplier/vendor ID、name、product quote、selection或关系对象 | HTML/JS静态检索，**Confirmed absence** |
+| 是否调用供应商或中央价格源？ | **No**。无fetch/XHR/API、外部价格JSON/CSV或数据库调用 | 外部依赖检查，**Confirmed absence** |
+| 是否有统一报价源表？ | **No**。只有一套硬编码 RenoPilot defaults | L1215-L1217、L5667-L5713，**Confirmed** |
+| Disclaimer提到supplier是否证明逐供应商定价？ | **No**。只说明实际价格会因supplier等因素变化，未说明默认价格来源 | L2009、L2549，**Confirmed text / sourcing Unknown** |
+| 项目价格能否修改？ | **Yes**。任何能操作HTML的浏览器用户可改 `u_cost_*`、`u_lab_*`、allowance、minimum，立即重算并保存 | L1647-L1870、`PROJECT_VALUE_IDS`，**Confirmed** |
+| 谁能修改项目级价格？ | 只能确认匿名浏览器用户；无身份、角色或权限检查 | 可编辑UI且无认证代码，**Confirmed** |
+| 谁能修改默认价格？ | 技术路径是修改HTML/JS literals并重新分发；责任人/审批流程 **Unknown** | L5667-L5713 |
+| 应采用多供应商还是统一价格源？ | **Unknown**。当前既无供应商模型，也无受管理统一源表 | 来源、产品、有效期、审批数据缺失 |
+| 正式报价后谁可修改？ | **Unknown**。无客户身份、报价对象、状态、锁定或权限模型 | L2009-L2010及Save JSON结构 |
+
+**结论：** 当前实现是“一套应用内默认价格 + 每项目由匿名浏览器用户覆盖”，不能认定为多供应商报价模型或中央统一价格主表。价格来源和正式报价修改权限必须人工确认。
+
+### 7.5 下一阶段前必须确认的问题
 
 | Question | 影响 | 依据状态 |
 |---|---|---|
@@ -336,7 +383,7 @@ erDiagram
 | `currency/length`中的钢筋length准确业务单位是什么？ | 单价定义 | **Unknown** |
 | 实际项目数量、并发、共享和批量需求？ | 后续容量与访问设计 | **Unknown** |
 
-### 7.5 范围结论
+### 7.6 范围结论
 
 当前应用是“单个命名项目文件 + 一个墙体设计状态 + 一组成本覆盖 + 源码内reference/config + 可重算输出”的本地浏览器模型。此结论由 Save JSON、输入白名单及计算路径直接支持。用户、客户、场地、审批、历史版本、共享协作和集中式项目库均未在代码中实现，不能作为已确认需求。
 
